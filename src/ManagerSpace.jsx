@@ -2,63 +2,102 @@ import React, { useState, useEffect } from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import axios from "axios";
+import { useProducts } from "./ProductContext";
 import "./managersapace.css";
 
 const ManagerSpace = () => {
+  const { products } = useProducts();
   const [auditData, setAuditData] = useState([]);
   const [form, setForm] = useState({
-    product: "", // product will store the product _id
+    product: "",
     systemQty: "",
     physicalQty: "",
   });
-  const [products, setProducts] = useState([]);
 
-  // Fetch products from the backend
+  // Log products to debug if list is loaded
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const response = await axios.get("http://localhost:5000/api/products");
-        setProducts(response.data); // Store the entire product object in state
-      } catch (err) {
-        console.error("Error fetching products:", err);
-      }
-    };
+    console.log("Loaded products:", products);
+  }, [products]);
 
-    fetchProducts();
-  }, []);
-
-  // Handle changes in form fields
+  // Handle change for select and inputs
   const handleChange = (e) => {
-    if (e.target.name === "product") {
-      const selectedProduct = products.find((p) => p.name === e.target.value); // Find the product by name
-      setForm({ ...form, product: selectedProduct._id }); // Store the product _id
+    const { name, value } = e.target;
+
+    if (name === "product") {
+      const selectedProduct = products.find(
+        (p) => p.name.toLowerCase() === value.toLowerCase()
+      );
+      if (selectedProduct) {
+        setForm({
+          product: selectedProduct.name,
+          systemQty: selectedProduct.quantity,
+          physicalQty: "",
+        });
+      } else {
+        setForm({ product: "", systemQty: "", physicalQty: "" });
+      }
     } else {
-      setForm({ ...form, [e.target.name]: e.target.value });
+      setForm((prevForm) => ({ ...prevForm, [name]: value }));
     }
   };
 
-  // Add audit data
+  // Add new audit entry
   const handleAddAudit = async () => {
     const { product, systemQty, physicalQty } = form;
-    const difference = physicalQty - systemQty;
 
-    // Send audit data to backend
+    if (!product || physicalQty === "") {
+      alert("Please select a product and enter physical quantity.");
+      return;
+    }
+
+    const parsedSystemQty = parseInt(systemQty, 10);
+    const parsedPhysicalQty = parseInt(physicalQty, 10);
+
+    if (isNaN(parsedSystemQty) || isNaN(parsedPhysicalQty)) {
+      alert("Invalid quantity input.");
+      return;
+    }
+
+    const difference = parsedPhysicalQty - parsedSystemQty;
+
+    // Check for duplicates
+    if (auditData.some((entry) => entry.product === product)) {
+      alert("Product already exists in the audit table.");
+      return;
+    }
+
+    // Optional: send to backend
     try {
       await axios.post("http://localhost:5000/api/audits", {
-        productId: product, // Send the product _id to the backend
-        systemQty,
-        physicalQty,
+        product,
+        systemQty: parsedSystemQty,
+        physicalQty: parsedPhysicalQty,
+        difference,
       });
-      setAuditData([...auditData, { ...form, difference }]);
-      setForm({ product: "", systemQty: "", physicalQty: "" }); // Clear form
     } catch (err) {
-      console.error("Error adding audit:", err);
+      console.warn("Backend error (not blocking UI):", err.message);
     }
+
+    // Update table immediately
+    setAuditData((prev) => [
+      ...prev,
+      {
+        product,
+        systemQty: parsedSystemQty,
+        physicalQty: parsedPhysicalQty,
+        difference,
+      },
+    ]);
+
+    // Reset form
+    setForm({ product: "", systemQty: "", physicalQty: "" });
   };
 
-  // Delete audit entry
-  const handleDelete = (productId) => {
-    setAuditData(auditData.filter((entry) => entry.product !== productId)); // Remove by product _id
+  // Delete entry
+  const handleDelete = (productName) => {
+    setAuditData((prev) =>
+      prev.filter((entry) => entry.product !== productName)
+    );
   };
 
   return (
@@ -67,7 +106,6 @@ const ManagerSpace = () => {
       <div className="main-content">
         <Header title="Manager Space" />
 
-        {/* Inventory Audit */}
         <div className="inventory-audit">
           <h3>Inventory Audit</h3>
           <p>Perform a physical stock count and update your system.</p>
@@ -76,18 +114,20 @@ const ManagerSpace = () => {
             <select name="product" value={form.product} onChange={handleChange}>
               <option value="">Select a product</option>
               {products.map((product) => (
-                <option key={product._id} value={product.name}>
+                <option key={product.name} value={product.name}>
                   {product.name}
                 </option>
               ))}
             </select>
+
             <input
               type="number"
               name="systemQty"
               placeholder="System Quantity"
               value={form.systemQty}
-              onChange={handleChange}
+              disabled
             />
+
             <input
               type="number"
               name="physicalQty"
@@ -95,6 +135,7 @@ const ManagerSpace = () => {
               value={form.physicalQty}
               onChange={handleChange}
             />
+
             <button className="btn btn-primary" onClick={handleAddAudit}>
               Add to Table
             </button>
@@ -124,6 +165,16 @@ const ManagerSpace = () => {
                   </td>
                 </tr>
               ))}
+              {auditData.length === 0 && (
+                <tr>
+                  <td
+                    colSpan="5"
+                    style={{ textAlign: "center", padding: "10px" }}
+                  >
+                    No audit entries added yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
